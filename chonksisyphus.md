@@ -1,0 +1,3 @@
+This game is based on the myth of sysiphus and featurest the nft character of chonks. The main mechanic is that we are a little chonk and we push a ball up a series of endless hills. Over as the player crests one hill, they walk a bit more and have to go up another hill. The idea is that we procedurally generate a variety of hills - their length and their incline - and maybe even change the size and mass of the ball as they go.
+
+The main input method is by using the microphone to detect blowing or sound.
