@@ -99,6 +99,12 @@ class GameScene extends Phaser.Scene {
         
         // Season system - 7 in-game days = 1 season
         this.daysPerSeason = 7;
+        
+        // Stuck detection - bump rock if it hasn't moved in 10 seconds
+        this.lastBallX = 0;
+        this.stuckTimer = 0;
+        this.stuckThreshold = 10000;  // 10 seconds in ms
+        this.stuckMoveThreshold = 5; // Must move at least 5 pixels
         this.dayCount = 1;
         this.seasons = ['SPRING', 'SUMMER', 'FALL', 'WINTER'];
         this.currentSeasonIndex = 0;
@@ -203,11 +209,52 @@ class GameScene extends Phaser.Scene {
         this.load.image('forest', 'assets/parallax/forest.png');
         
         // Enemy sprites (for random appearances)
+        // Day 0: Pidgit (flies) and Shy Guy (walks) - always available
         for (let i = 1; i <= 8; i++) {
-            this.load.image(`pidgit-${i}`, `assets/enemies/pidgit-${i}.png`);
+            this.load.image(`pidgit-${i}`, `assets/enemies/pidgit/pidgit-${i}.png`);
         }
-        for (let i = 1; i <= 12; i++) {
-            this.load.image(`shyguy-${i}`, `assets/enemies/shyguy-red-${i}.png`);
+        for (let i = 1; i <= 8; i++) {
+            this.load.image(`shyguy-${i}`, `assets/enemies/shyguy-red/shyguy-red-${i}.png`);
+        }
+        
+        // Day 1: Autobomb (drives on ground)
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`autobomb-${i}`, `assets/enemies/autobomb/autobomb${i}.png`);
+        }
+        
+        // Day 2: Bob-omb (walks on ground)
+        for (let i = 1; i <= 5; i++) {
+            this.load.image(`bobomb-${i}`, `assets/enemies/bob-omb/bob-omb${i}.png`);
+        }
+        
+        // Day 3: Flurry (runs on ground)
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`flurry-${i}`, `assets/enemies/flurry/flurry${i}.png`);
+        }
+        
+        // Day 4: Ninji (jumps in place)
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`ninji-${i}`, `assets/enemies/ninji/ninji${i}.png`);
+        }
+        
+        // Day 5: Phanto (flies erratically)
+        for (let i = 1; i <= 10; i++) {
+            this.load.image(`phanto-${i}`, `assets/enemies/phanto/phanto${i}.png`);
+        }
+        
+        // Day 6: Porcupo Blue (walks on ground)
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`porcupo-${i}`, `assets/enemies/porcupoBlue/porcupoBlue${i}.png`);
+        }
+        
+        // Day 7: Snift Pink (walks on ground)
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`snift-${i}`, `assets/enemies/snift-pink/snift-pink${i}.png`);
+        }
+        
+        // Day 8: Subcon Red (flies across screen)
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`subcon-${i}`, `assets/enemies/subconRed/subconRed${i}.png`);
         }
         
         // Background music
@@ -630,7 +677,8 @@ class GameScene extends Phaser.Scene {
 
         this.moveSpeed = 2;
         this.playerWidth = 40;
-        this.blowThreshold = 0.15;
+        this.blowThreshold = 0.05
+        ;
         
         // Track hills climbed
         this.hillsClimbed = 0;
@@ -652,6 +700,17 @@ class GameScene extends Phaser.Scene {
             fontSize: '22px',
             color: '#fff',
             fontStyle: 'bold',
+        }).setOrigin(1, 0).setScrollFactor(0).setDepth(100).setShadow(2, 2, '#000', 4);
+        
+        // Blow meter - simple bar indicator
+        this.blowMeterBg = this.add.rectangle(this.gameWidth - 20, 50, 100, 12, 0x333333)
+            .setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+        this.blowMeterFill = this.add.rectangle(this.gameWidth - 20, 50, 0, 12, 0x00ff00)
+            .setOrigin(1, 0).setScrollFactor(0).setDepth(101);
+        this.blowLabel = this.add.text(this.gameWidth - 125, 48, '🌬️', {
+            fontFamily: 'Courier New',
+            fontSize: '14px',
+            color: '#fff',
             shadow: hudShadow,
             stroke: '#000',
             strokeThickness: 3
@@ -789,6 +848,29 @@ class GameScene extends Phaser.Scene {
         return false;
     }
 
+    // Check if ball is stuck and give it a nudge
+    checkStuckBall(delta) {
+        const currentBallX = this.ball.position.x;
+        const moved = Math.abs(currentBallX - this.lastBallX);
+        
+        if (moved > this.stuckMoveThreshold) {
+            // Ball is moving, reset timer
+            this.stuckTimer = 0;
+            this.lastBallX = currentBallX;
+        } else {
+            // Ball hasn't moved much, increment timer
+            this.stuckTimer += delta;
+            
+            if (this.stuckTimer >= this.stuckThreshold) {
+                // Ball is stuck! Give it a nudge
+                console.log('🪨 Ball stuck! Giving it a nudge...');
+                this.matter.body.applyForce(this.ball, this.ball.position, { x: 0.015, y: -0.01 });
+                this.stuckTimer = 0;
+                this.lastBallX = currentBallX;
+            }
+        }
+    }
+    
     // Track which hill the player is on
     updateHillCounter() {
         const ballX = this.ball.position.x;
@@ -1208,13 +1290,42 @@ class GameScene extends Phaser.Scene {
     }
     
     spawnRandomEnemy() {
-        const enemyTypes = ['pidgit', 'shyguy'];
-        const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        // Build list of available enemies based on day count
+        // Day 0: pidgit, shyguy (always available)
+        // Each subsequent day adds one more enemy type
+        const allEnemyTypes = [
+            { type: 'pidgit', unlockDay: 0 },
+            { type: 'shyguy', unlockDay: 0 },
+            { type: 'autobomb', unlockDay: 1 },
+            { type: 'bobomb', unlockDay: 2 },
+            { type: 'flurry', unlockDay: 3 },
+            { type: 'ninji', unlockDay: 4 },
+            { type: 'phanto', unlockDay: 5 },
+            { type: 'porcupo', unlockDay: 6 },
+            { type: 'snift', unlockDay: 7 },
+            { type: 'subcon', unlockDay: 8 }
+        ];
         
-        if (type === 'pidgit') {
-            this.spawnPidgit();
-        } else if (type === 'shyguy') {
-            this.spawnShyGuy();
+        // Filter to only enemies unlocked by current day
+        const availableTypes = allEnemyTypes
+            .filter(e => e.unlockDay <= this.dayCount)
+            .map(e => e.type);
+        
+        const type = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+        
+        if (DEBUG.logEnemies) console.log(`🎯 Spawning ${type} (Day ${this.dayCount}, ${availableTypes.length} enemy types available)`);
+        
+        switch(type) {
+            case 'pidgit': this.spawnPidgit(); break;
+            case 'shyguy': this.spawnShyGuy(); break;
+            case 'autobomb': this.spawnAutobomb(); break;
+            case 'bobomb': this.spawnBobomb(); break;
+            case 'flurry': this.spawnFlurry(); break;
+            case 'ninji': this.spawnNinji(); break;
+            case 'phanto': this.spawnPhanto(); break;
+            case 'porcupo': this.spawnPorcupo(); break;
+            case 'snift': this.spawnSnift(); break;
+            case 'subcon': this.spawnSubcon(); break;
         }
     }
     
@@ -1282,8 +1393,244 @@ class GameScene extends Phaser.Scene {
         if (DEBUG.logEnemies) console.log(`😳 Shy Guy appeared at x:${startX.toFixed(0)}, y:${groundY}!`);
     }
     
+    spawnAutobomb() {
+        // Autobomb drives along on the ground
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const groundY = this.baseGroundY - 30;
+        
+        const sprite = this.add.sprite(startX, groundY, 'autobomb-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(!fromLeft);
+        sprite.setDepth(5);
+        
+        this.textures.get('autobomb-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'autobomb',
+            sprite: sprite,
+            speed: fromLeft ? 2.5 + Math.random() * 0.5 : -(2.5 + Math.random() * 0.5),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 2,
+            animSpeed: 100
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('🚗 Autobomb appeared!');
+    }
+    
+    spawnBobomb() {
+        // Bob-omb walks on ground
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const groundY = this.baseGroundY - 25;
+        
+        const sprite = this.add.sprite(startX, groundY, 'bobomb-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(!fromLeft);
+        sprite.setDepth(5);
+        
+        this.textures.get('bobomb-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'bobomb',
+            sprite: sprite,
+            speed: fromLeft ? 1 + Math.random() * 0.5 : -(1 + Math.random() * 0.5),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 5,
+            animSpeed: 140
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('💣 Bob-omb appeared!');
+    }
+    
+    spawnFlurry() {
+        // Flurry runs fast on the ground
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const groundY = this.baseGroundY - 25;
+        
+        const sprite = this.add.sprite(startX, groundY, 'flurry-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(!fromLeft);
+        sprite.setDepth(5);
+        
+        this.textures.get('flurry-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'flurry',
+            sprite: sprite,
+            speed: fromLeft ? 3 + Math.random() : -(3 + Math.random()),  // Fast runner!
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 2,
+            animSpeed: 80
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('❄️ Flurry appeared!');
+    }
+    
+    spawnNinji() {
+        // Ninji jumps in place - spawns on screen and jumps
+        const startX = this.cameras.main.scrollX + 100 + Math.random() * (this.gameWidth - 200);
+        const groundY = this.getGroundY(startX) - 20;
+        
+        const sprite = this.add.sprite(startX, groundY, 'ninji-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setDepth(5);
+        
+        this.textures.get('ninji-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'ninji',
+            sprite: sprite,
+            speed: 0,  // Doesn't move horizontally
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 2,
+            animSpeed: 200,
+            baseY: groundY,
+            jumpPhase: 0  // For tracking jump animation
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('🥷 Ninji appeared!');
+    }
+    
+    spawnPhanto() {
+        // Phanto flies erratically on and off screen
+        const startX = this.cameras.main.scrollX + Math.random() * this.gameWidth;
+        const startY = 50 + Math.random() * 100;
+        
+        const sprite = this.add.sprite(startX, startY, 'phanto-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setDepth(5);
+        
+        this.textures.get('phanto-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'phanto',
+            sprite: sprite,
+            speed: (Math.random() - 0.5) * 4,
+            speedY: (Math.random() - 0.5) * 3,
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 10,
+            animSpeed: 100,
+            erraticTimer: 0
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('👻 Phanto appeared!');
+    }
+    
+    spawnPorcupo() {
+        // Porcupo Blue walks on ground
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const groundY = this.baseGroundY - 25;
+        
+        const sprite = this.add.sprite(startX, groundY, 'porcupo-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(!fromLeft);
+        sprite.setDepth(5);
+        
+        this.textures.get('porcupo-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'porcupo',
+            sprite: sprite,
+            speed: fromLeft ? 1.2 + Math.random() * 0.5 : -(1.2 + Math.random() * 0.5),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 2,
+            animSpeed: 180
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('🦔 Porcupo appeared!');
+    }
+    
+    spawnSnift() {
+        // Snift Pink walks on ground
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const groundY = this.baseGroundY - 30;
+        
+        const sprite = this.add.sprite(startX, groundY, 'snift-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(!fromLeft);
+        sprite.setDepth(5);
+        
+        this.textures.get('snift-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'snift',
+            sprite: sprite,
+            speed: fromLeft ? 1.5 + Math.random() * 0.5 : -(1.5 + Math.random() * 0.5),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 2,
+            animSpeed: 150
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('🔥 Snift appeared!');
+    }
+    
+    spawnSubcon() {
+        // Subcon Red flies across the screen
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const startY = 60 + Math.random() * 120;
+        
+        const sprite = this.add.sprite(startX, startY, 'subcon-1');
+        sprite.setScale(3);
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(fromLeft);
+        sprite.setDepth(5);
+        
+        this.textures.get('subcon-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'subcon',
+            sprite: sprite,
+            speed: fromLeft ? 2 + Math.random() : -(2 + Math.random()),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 2,
+            animSpeed: 120
+        };
+        
+        this.activeEnemies.push(enemy);
+        if (DEBUG.logEnemies) console.log('👹 Subcon appeared!');
+    }
+    
     updateEnemy(enemy) {
-        // Move
+        // Move (unless stationary like ninji)
         enemy.sprite.x += enemy.speed;
         
         // Animate
@@ -1294,15 +1641,51 @@ class GameScene extends Phaser.Scene {
             enemy.sprite.setTexture(`${enemy.type}-${enemy.frame}`);
         }
         
-        // Pidgit has a gentle bobbing motion
-        if (enemy.type === 'pidgit') {
-            enemy.sprite.y += Math.sin(enemy.sprite.x * 0.02) * 0.3;
-        }
-        
-        // Shy Guy follows the terrain
-        if (enemy.type === 'shyguy') {
-            const groundY = this.getGroundY(enemy.sprite.x);
-            enemy.sprite.y = groundY - 25;  // Offset to stand on ground
+        // Type-specific behaviors
+        switch(enemy.type) {
+            case 'pidgit':
+                // Gentle bobbing motion
+                enemy.sprite.y += Math.sin(enemy.sprite.x * 0.02) * 0.3;
+                break;
+                
+            case 'shyguy':
+            case 'autobomb':
+            case 'bobomb':
+            case 'flurry':
+            case 'porcupo':
+            case 'snift':
+                // Ground-following enemies
+                const groundY = this.getGroundY(enemy.sprite.x);
+                enemy.sprite.y = groundY - 25;
+                break;
+                
+            case 'ninji':
+                // Jumps in place
+                enemy.jumpPhase += 0.08;
+                const jumpHeight = Math.abs(Math.sin(enemy.jumpPhase)) * 60;
+                enemy.sprite.y = enemy.baseY - jumpHeight;
+                // Update base position to follow terrain
+                enemy.baseY = this.getGroundY(enemy.sprite.x) - 20;
+                break;
+                
+            case 'phanto':
+                // Erratic flying movement
+                enemy.erraticTimer += this.game.loop.delta;
+                if (enemy.erraticTimer > 500 + Math.random() * 1000) {
+                    enemy.erraticTimer = 0;
+                    enemy.speed = (Math.random() - 0.5) * 4;
+                    enemy.speedY = (Math.random() - 0.5) * 3;
+                }
+                enemy.sprite.y += enemy.speedY;
+                // Keep within screen bounds vertically
+                if (enemy.sprite.y < 30) enemy.speedY = Math.abs(enemy.speedY);
+                if (enemy.sprite.y > this.baseGroundY - 100) enemy.speedY = -Math.abs(enemy.speedY);
+                break;
+                
+            case 'subcon':
+                // Gentle wave motion while flying
+                enemy.sprite.y += Math.sin(enemy.sprite.x * 0.03) * 0.4;
+                break;
         }
     }
 
@@ -1326,8 +1709,19 @@ class GameScene extends Phaser.Scene {
         
         this.micLevel = this.getMicLevel();
         
-        const leftPressed = this.cursors.left.isDown || this.wasd.left.isDown;
-        const rightPressed = this.cursors.right.isDown || this.wasd.right.isDown;
+        // Update blow meter visual
+        const meterWidth = Math.min(this.micLevel * 200, 100);  // Max 100px width
+        this.blowMeterFill.width = meterWidth;
+        // Change color based on level: green -> yellow -> red
+        if (this.micLevel > this.blowThreshold) {
+            this.blowMeterFill.fillColor = 0xff6600;  // Orange when blowing
+        } else {
+            this.blowMeterFill.fillColor = 0x00ff00;  // Green otherwise
+        }
+        
+        // Keyboard disabled - blow only!
+        const leftPressed = false;
+        const rightPressed = false;
         const blowing = this.micLevel > this.blowThreshold;
 
         this.isWalking = false;
@@ -1430,6 +1824,9 @@ class GameScene extends Phaser.Scene {
         
         // Update hill counter
         this.updateHillCounter();
+        
+        // Stuck detection - bump rock if it hasn't moved in 10 seconds
+        this.checkStuckBall(delta);
         
         // Update parallax backgrounds based on camera movement
         const cameraX = this.cameras.main.scrollX;

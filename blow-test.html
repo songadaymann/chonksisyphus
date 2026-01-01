@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blow Detection Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 30px;
+            font-size: 24px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .container {
+            background: rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 30px;
+            width: 100%;
+            max-width: 400px;
+        }
+        .meter-container {
+            margin-bottom: 30px;
+        }
+        .meter-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .meter {
+            width: 100%;
+            height: 40px;
+            background: #333;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        .meter-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #00ff00, #ffff00, #ff6600, #ff0000);
+            transition: width 0.05s ease-out;
+            border-radius: 8px;
+        }
+        .threshold-line {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: #fff;
+            box-shadow: 0 0 10px rgba(255,255,255,0.8);
+        }
+        .status {
+            text-align: center;
+            font-size: 48px;
+            margin: 20px 0;
+            min-height: 60px;
+        }
+        .status-text {
+            font-size: 18px;
+            color: #aaa;
+        }
+        .control-group {
+            margin-bottom: 20px;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="range"] {
+            flex: 1;
+            height: 8px;
+            -webkit-appearance: none;
+            background: #555;
+            border-radius: 4px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #00ff00;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .value-display {
+            min-width: 50px;
+            text-align: right;
+            font-size: 14px;
+            color: #00ff00;
+        }
+        .start-btn {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            font-family: 'Courier New', monospace;
+            background: #00ff00;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .start-btn:hover {
+            background: #00cc00;
+            transform: scale(1.02);
+        }
+        .start-btn:disabled {
+            background: #666;
+            color: #999;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .raw-values {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .raw-values span {
+            color: #00ff00;
+        }
+    </style>
+</head>
+<body>
+    <h1>🌬️ Blow Detection Test</h1>
+    
+    <div class="container">
+        <button class="start-btn" id="startBtn">TAP TO START MIC</button>
+        
+        <div class="meter-container" style="margin-top: 20px;">
+            <div class="meter-label">
+                <span>Volume Level</span>
+                <span id="levelPercent">0%</span>
+            </div>
+            <div class="meter">
+                <div class="meter-fill" id="meterFill"></div>
+                <div class="threshold-line" id="thresholdLine" style="left: 5%"></div>
+            </div>
+        </div>
+        
+        <div class="status" id="statusEmoji">😴</div>
+        <div class="status-text" id="statusText">Tap to start microphone</div>
+        
+        <div class="control-group">
+            <label>Blow Threshold (lower = more sensitive)</label>
+            <div class="slider-container">
+                <input type="range" id="thresholdSlider" min="5" max="80" value="5">
+                <div class="value-display" id="thresholdValue">5%</div>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label>Smoothing (higher = less jumpy)</label>
+            <div class="slider-container">
+                <input type="range" id="smoothingSlider" min="0" max="95" value="95">
+                <div class="value-display" id="smoothingValue">95%</div>
+            </div>
+        </div>
+        
+        <div class="raw-values">
+            <div>Raw Level: <span id="rawLevel">0.000</span></div>
+            <div>Smoothed Level: <span id="smoothedLevel">0.000</span></div>
+            <div>Threshold: <span id="thresholdVal">0.050</span></div>
+            <div>Is Blowing: <span id="isBlowing">NO</span></div>
+        </div>
+    </div>
+
+    <script>
+        let audioContext = null;
+        let analyser = null;
+        let dataArray = null;
+        let smoothedLevel = 0;
+        let isRunning = false;
+        
+        const startBtn = document.getElementById('startBtn');
+        const meterFill = document.getElementById('meterFill');
+        const thresholdLine = document.getElementById('thresholdLine');
+        const levelPercent = document.getElementById('levelPercent');
+        const statusEmoji = document.getElementById('statusEmoji');
+        const statusText = document.getElementById('statusText');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const thresholdValue = document.getElementById('thresholdValue');
+        const smoothingSlider = document.getElementById('smoothingSlider');
+        const smoothingValue = document.getElementById('smoothingValue');
+        const rawLevelEl = document.getElementById('rawLevel');
+        const smoothedLevelEl = document.getElementById('smoothedLevel');
+        const thresholdValEl = document.getElementById('thresholdVal');
+        const isBlowingEl = document.getElementById('isBlowing');
+        
+        // Update threshold line position
+        thresholdSlider.addEventListener('input', () => {
+            const val = thresholdSlider.value;
+            thresholdValue.textContent = val + '%';
+            thresholdLine.style.left = val + '%';
+            thresholdValEl.textContent = (val / 100).toFixed(3);
+        });
+        
+        smoothingSlider.addEventListener('input', () => {
+            smoothingValue.textContent = smoothingSlider.value + '%';
+        });
+        
+        startBtn.addEventListener('click', async () => {
+            if (isRunning) return;
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                analyser.smoothingTimeConstant = 0.3;
+                source.connect(analyser);
+                
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                isRunning = true;
+                
+                startBtn.textContent = 'MIC ACTIVE';
+                startBtn.disabled = true;
+                statusText.textContent = 'Listening...';
+                
+                updateMeter();
+            } catch (err) {
+                console.error('Mic error:', err);
+                statusText.textContent = 'Microphone access denied!';
+                statusEmoji.textContent = '❌';
+            }
+        });
+        
+        function updateMeter() {
+            if (!isRunning) return;
+            
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate raw level (same as game.js)
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            const rawLevel = sum / dataArray.length / 255;
+            
+            // Apply smoothing
+            const smoothingFactor = smoothingSlider.value / 100;
+            smoothedLevel = smoothedLevel * smoothingFactor + rawLevel * (1 - smoothingFactor);
+            
+            // Get threshold
+            const threshold = thresholdSlider.value / 100;
+            const isBlowing = smoothedLevel > threshold;
+            
+            // Update UI
+            const displayPercent = Math.min(smoothedLevel * 100, 100);
+            meterFill.style.width = displayPercent + '%';
+            levelPercent.textContent = displayPercent.toFixed(1) + '%';
+            
+            // Update emoji and text
+            if (isBlowing) {
+                statusEmoji.textContent = '💨';
+                statusText.textContent = 'BLOWING!';
+                statusEmoji.style.transform = 'scale(1.2)';
+                isBlowingEl.textContent = 'YES';
+                isBlowingEl.style.color = '#00ff00';
+            } else if (smoothedLevel > 0.02) {
+                statusEmoji.textContent = '😮';
+                statusText.textContent = 'Detecting sound...';
+                statusEmoji.style.transform = 'scale(1)';
+                isBlowingEl.textContent = 'NO';
+                isBlowingEl.style.color = '#ff6666';
+            } else {
+                statusEmoji.textContent = '😊';
+                statusText.textContent = 'Listening...';
+                statusEmoji.style.transform = 'scale(1)';
+                isBlowingEl.textContent = 'NO';
+                isBlowingEl.style.color = '#ff6666';
+            }
+            
+            // Update raw values
+            rawLevelEl.textContent = rawLevel.toFixed(3);
+            smoothedLevelEl.textContent = smoothedLevel.toFixed(3);
+            
+            requestAnimationFrame(updateMeter);
+        }
+    </script>
+</body>
+</html>
