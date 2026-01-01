@@ -120,6 +120,13 @@ class GameScene extends Phaser.Scene {
         this.enemySpawnInterval = 15000;  // Check every 15 seconds
         this.enemySpawnChance = 0.4;      // 40% chance
         this.activeEnemies = [];
+        
+        // Friends system - special characters that appear on certain days
+        this.activeFriends = [];
+        this.muscleSpawned = false;  // Spawn muscle once at start
+        this.friendSpawnTimer = 0;
+        this.friendSpawnInterval = 25000;  // Check every 25 seconds
+        this.friendSpawnChance = 0.3;  // 30% chance when timer fires
     }
     
     // Random number between min and max
@@ -207,6 +214,11 @@ class GameScene extends Phaser.Scene {
         this.load.image('sky-clouds', 'assets/parallax/sky-clouds.png');
         this.load.image('mountains', 'assets/parallax/mountains.png');
         this.load.image('forest', 'assets/parallax/forest.png');
+        
+        // Friend sprites
+        for (let i = 1; i <= 7; i++) {
+            this.load.image(`muscle-${i}`, `assets/friends/muscle-walk${i}.png`);
+        }
         
         // Enemy sprites (for random appearances)
         // Day 0: Pidgit (flies) and Shy Guy (walks) - always available
@@ -609,10 +621,19 @@ class GameScene extends Phaser.Scene {
             });
         }
         
+        // Detect mobile vs desktop for different physics
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        // Desktop gets LOWER friction (Mac mics seem to need easier pushing)
+        const ballFriction = isMobile ? 0.5 : 0.3;
+        const ballFrictionStatic = isMobile ? 0.6 : 0.4;
+        
+        console.log(`📱 Device: ${isMobile ? 'MOBILE' : 'DESKTOP'}, friction: ${ballFriction}, frictionStatic: ${ballFrictionStatic}`);
+        
         this.ball = this.matter.add.fromVertices(180, this.baseGroundY - 70, this.lumpyVertices, {
             restitution: 0.1,
-            friction: 0.5,
-            frictionStatic: 0.6,
+            friction: ballFriction,
+            frictionStatic: ballFrictionStatic,
             density: 0.00025,
             label: 'ball'
         });
@@ -1674,6 +1695,90 @@ class GameScene extends Phaser.Scene {
                 break;
         }
     }
+    
+    // ============================================
+    // FRIENDS SYSTEM
+    // ============================================
+    
+    updateFriends(delta) {
+        // Spawn muscle friend at the very start (once)
+        if (!this.muscleSpawned) {
+            console.log('🎯 Game start, spawning muscle friend...');
+            this.spawnMuscle();
+            this.muscleSpawned = true;
+        }
+        
+        // Random friend spawns (like enemies)
+        this.friendSpawnTimer += delta;
+        if (this.friendSpawnTimer >= this.friendSpawnInterval) {
+            this.friendSpawnTimer = 0;
+            if (Math.random() < this.friendSpawnChance) {
+                this.spawnMuscle();
+                if (DEBUG.logEnemies) console.log('💪 Random muscle friend spawned!');
+            }
+        }
+        
+        // Update active friends
+        for (let i = this.activeFriends.length - 1; i >= 0; i--) {
+            const friend = this.activeFriends[i];
+            this.updateFriend(friend);
+            
+            // Remove if way off screen behind player
+            if (friend.sprite.x < this.cameras.main.scrollX - 300) {
+                friend.sprite.destroy();
+                this.activeFriends.splice(i, 1);
+            }
+        }
+    }
+    
+    spawnMuscle() {
+        // Muscle friend walks ahead of the player up the mountain
+        const startX = this.playerX + 150;  // Start ahead of player
+        const groundY = this.getGroundY(startX);
+        
+        console.log(`💪 Spawning muscle at x:${startX}, groundY:${groundY}, final y:${groundY - 50}`);
+        
+        const sprite = this.add.sprite(startX, groundY - 80, 'muscle-1');
+        sprite.setScale(0.3);  // Bigger! Scale down from high-res to game size
+        sprite.setScrollFactor(1);
+        sprite.setDepth(6);  // In front of enemies
+        
+        console.log(`💪 Sprite created:`, sprite, `visible:${sprite.visible}, alpha:${sprite.alpha}`);
+        
+        // Make it crisp
+        this.textures.get('muscle-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const friend = {
+            type: 'muscle',
+            sprite: sprite,
+            speed: 0.6,  // Slower, leisurely walk
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 7,  // 7 walk frames now!
+            animSpeed: 180  // Slower animation to match slower walk
+        };
+        
+        this.activeFriends.push(friend);
+        
+        console.log('💪 Muscle friend appeared!');
+    }
+    
+    updateFriend(friend) {
+        // Move forward (always walking right/up the mountain)
+        friend.sprite.x += friend.speed;
+        
+        // Animate
+        friend.frameTimer += this.game.loop.delta;
+        if (friend.frameTimer >= friend.animSpeed) {
+            friend.frameTimer = 0;
+            friend.frame = (friend.frame % friend.maxFrames) + 1;
+            friend.sprite.setTexture(`${friend.type}-${friend.frame}`);
+        }
+        
+        // Follow terrain
+        const groundY = this.getGroundY(friend.sprite.x);
+        friend.sprite.y = groundY - 80;  // Offset to stand on ground (bigger sprite)
+    }
 
     update(time, delta) {
         // Update time system
@@ -1684,6 +1789,9 @@ class GameScene extends Phaser.Scene {
         
         // Update random enemies
         this.updateEnemies(delta);
+        
+        // Update friends
+        this.updateFriends(delta);
         
         // Generate terrain ahead and cleanup behind
         this.generateAhead();
