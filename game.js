@@ -3,7 +3,9 @@
 // Debug options
 const DEBUG = {
     showPhysics: false,
-    showSegmentBounds: false
+    showSegmentBounds: false,
+    logWeather: true,  // Log weather events to console
+    logEnemies: true   // Log enemy spawn attempts
 };
 
 // ============================================
@@ -82,17 +84,105 @@ class GameScene extends Phaser.Scene {
         this.baseGroundY = 0;
         
         // Hill variety ranges - ADJUST THESE!
-        this.flatWidthMin = 150;
-        this.flatWidthMax = 350;
-        this.inclineWidthMin = 250;
-        this.inclineWidthMax = 500;
-        this.inclineHeightMin = 120;
-        this.inclineHeightMax = 250;
+        this.flatWidthMin = 50;      // Can be very short flat sections
+        this.flatWidthMax = 600;     // Or long flat stretches
+        this.inclineWidthMin = 100;  // Short hills
+        this.inclineWidthMax = 800;  // Or loooong hills
+        // Slope angle varies (height = width * ratio)
+        this.inclineAngleMin = 0.15; // ~8 degrees - gentle
+        this.inclineAngleMax = 0.50; // ~27 degrees - steeper (50 degrees would be too hard!)
+        
+        // Time system - 5 real minutes = 1 in-game day (300 seconds)
+        this.dayLengthMs = 5 * 60 * 1000;  // 5 minutes in milliseconds
+        this.gameTime = 6 * 60;  // Start at 6:00 AM (minutes since midnight)
+        this.lastTimeUpdate = 0;
+        
+        // Season system - 7 in-game days = 1 season
+        this.daysPerSeason = 7;
+        this.dayCount = 1;
+        this.seasons = ['SPRING', 'SUMMER', 'FALL', 'WINTER'];
+        this.currentSeasonIndex = 0;
+        
+        // Weather system
+        this.currentWeather = 'clear';  // clear, rain, snow, wind
+        this.weatherTimer = 0;
+        this.weatherDuration = 0;
+        this.windStrength = 0;  // -1 to 1 (negative = left, positive = right)
+        
+        // Random enemy appearances
+        this.enemySpawnTimer = 0;
+        this.enemySpawnInterval = 15000;  // Check every 15 seconds
+        this.enemySpawnChance = 0.4;      // 40% chance
+        this.activeEnemies = [];
     }
     
     // Random number between min and max
     randomRange(min, max) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+    
+    // Create an 8-bit style pixel art boulder texture
+    createPixelBoulderTexture() {
+        const size = 32;  // Small texture, will be scaled up (crispy pixels!)
+        const graphics = this.make.graphics();
+        
+        // Boulder color palette (limited like NES/8-bit)
+        const colors = {
+            dark: 0x4a4a4a,      // Dark grey (shadows)
+            mid: 0x7a7a7a,       // Mid grey (base)
+            light: 0x9a9a9a,     // Light grey (highlights)
+            highlight: 0xbababa  // Brightest (top highlights)
+        };
+        
+        // Draw pixelated boulder shape
+        const pixelSize = 2;  // Each "pixel" is 2x2
+        const center = size / 2;
+        const radius = size / 2 - 2;
+        
+        for (let y = 0; y < size; y += pixelSize) {
+            for (let x = 0; x < size; x += pixelSize) {
+                const dx = x + pixelSize/2 - center;
+                const dy = y + pixelSize/2 - center;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                // Only draw within rough circle
+                if (dist < radius + (Math.random() * 3 - 1.5)) {
+                    // Choose color based on position (lighting from top-left)
+                    let color;
+                    const lightAngle = Math.atan2(dy, dx);
+                    const lightValue = Math.cos(lightAngle + Math.PI * 0.75);  // Light from top-left
+                    
+                    // Add some noise for rocky texture
+                    const noise = Math.random() * 0.3 - 0.15;
+                    const finalLight = lightValue + noise;
+                    
+                    if (finalLight > 0.3) {
+                        color = colors.highlight;
+                    } else if (finalLight > 0) {
+                        color = colors.light;
+                    } else if (finalLight > -0.3) {
+                        color = colors.mid;
+                    } else {
+                        color = colors.dark;
+                    }
+                    
+                    graphics.fillStyle(color);
+                    graphics.fillRect(x, y, pixelSize, pixelSize);
+                }
+            }
+        }
+        
+        // Add some darker cracks/details
+        graphics.fillStyle(colors.dark);
+        graphics.fillRect(10, 14, 2, 4);
+        graphics.fillRect(18, 10, 2, 6);
+        graphics.fillRect(14, 20, 4, 2);
+        
+        graphics.generateTexture('pixel-boulder', size, size);
+        graphics.destroy();
+        
+        // Make sure it scales with nearest neighbor
+        this.textures.get('pixel-boulder').setFilter(Phaser.Textures.FilterMode.NEAREST);
     }
 
     preload() {
@@ -111,6 +201,17 @@ class GameScene extends Phaser.Scene {
         this.load.image('sky-clouds', 'assets/parallax/sky-clouds.png');
         this.load.image('mountains', 'assets/parallax/mountains.png');
         this.load.image('forest', 'assets/parallax/forest.png');
+        
+        // Enemy sprites (for random appearances)
+        for (let i = 1; i <= 8; i++) {
+            this.load.image(`pidgit-${i}`, `assets/enemies/pidgit-${i}.png`);
+        }
+        for (let i = 1; i <= 12; i++) {
+            this.load.image(`shyguy-${i}`, `assets/enemies/shyguy-red-${i}.png`);
+        }
+        
+        // Background music
+        this.load.audio('bgm', 'assets/chonks-sysiphus.mp3');
     }
 
     setupMicrophone() {
@@ -153,7 +254,9 @@ class GameScene extends Phaser.Scene {
         // Randomize this segment's dimensions
         const flatWidth = this.randomRange(this.flatWidthMin, this.flatWidthMax);
         const inclineWidth = this.randomRange(this.inclineWidthMin, this.inclineWidthMax);
-        const inclineHeight = this.randomRange(this.inclineHeightMin, this.inclineHeightMax);
+        // Random slope angle within range
+        const angleRatio = this.inclineAngleMin + Math.random() * (this.inclineAngleMax - this.inclineAngleMin);
+        const inclineHeight = Math.floor(inclineWidth * angleRatio);
         
         const segment = {
             index: this.segmentIndex++,
@@ -467,8 +570,11 @@ class GameScene extends Phaser.Scene {
             label: 'ball'
         });
         
-        // Boulder sprite with texture
-        this.ballGraphic = this.add.sprite(180, this.baseGroundY - 70, 'boulder');
+        // Create 8-bit style boulder texture procedurally
+        this.createPixelBoulderTexture();
+        
+        // Boulder sprite with pixel art texture
+        this.ballGraphic = this.add.sprite(180, this.baseGroundY - 70, 'pixel-boulder');
         this.ballGraphic.setDisplaySize(this.ballRadius * 2, this.ballRadius * 2);
         
         // Create lumpy mask matching the physics shape
@@ -532,12 +638,46 @@ class GameScene extends Phaser.Scene {
 
         // UI - fixed to camera (doesn't scroll)
         // Only hill counter in the HUD
+        // HUD text style with shadow for visibility
+        const hudShadow = {
+            offsetX: 2,
+            offsetY: 2,
+            color: '#000',
+            blur: 4,
+            fill: true
+        };
+        
         this.hillCounter = this.add.text(this.gameWidth - 20, 20, 'HILLS: 0', {
             fontFamily: 'Courier New',
-            fontSize: '20px',
+            fontSize: '22px',
             color: '#fff',
-            fontStyle: 'bold'
+            fontStyle: 'bold',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 3
         }).setOrigin(1, 0).setScrollFactor(0);  // Right-aligned
+        
+        // Clock display (left side)
+        this.clockText = this.add.text(20, 20, '6:00 AM', {
+            fontFamily: 'Courier New',
+            fontSize: '18px',
+            color: '#fff',
+            fontStyle: 'bold',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 3
+        }).setScrollFactor(0);
+        
+        // Season display (below clock)
+        this.seasonText = this.add.text(20, 44, 'SPRING - Day 1', {
+            fontFamily: 'Courier New',
+            fontSize: '16px',
+            color: '#90EE90',  // Light green for spring
+            fontStyle: 'bold',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 2
+        }).setScrollFactor(0);
         
         // Intro instructions (centered, fades out)
         const centerX = this.gameWidth / 2;
@@ -547,20 +687,29 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Courier New',
             fontSize: '32px',
             color: '#ffffff',
-            fontStyle: 'bold'
+            fontStyle: 'bold',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 4
         }).setOrigin(0.5).setScrollFactor(0);
         
         const introLine2 = this.add.text(centerX, centerY - 40, 'UP THE HILL', {
             fontFamily: 'Courier New',
             fontSize: '32px',
             color: '#ffffff',
-            fontStyle: 'bold'
+            fontStyle: 'bold',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 4
         }).setOrigin(0.5).setScrollFactor(0);
         
         const introLine3 = this.add.text(centerX, centerY + 10, '(blow)', {
             fontFamily: 'Courier New',
             fontSize: '20px',
-            color: '#ffffff'
+            color: '#ffffff',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 3
         }).setOrigin(0.5).setScrollFactor(0);
         
         // Fade out intro after a few seconds
@@ -578,7 +727,25 @@ class GameScene extends Phaser.Scene {
         });
         
         // Setup microphone (permission already granted in TitleScene)
-        this.setupMicrophone();
+                this.setupMicrophone();
+        
+        // Start background music (loops forever)
+        this.bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 });
+        this.bgMusic.play();
+        
+        // Weather particle system
+        this.createWeatherParticles();
+        
+        // Weather indicator in HUD (below season)
+        this.weatherText = this.add.text(20, 68, '', {
+            fontFamily: 'Courier New',
+            fontSize: '14px',
+            color: '#fff',
+            fontStyle: 'bold',
+            shadow: hudShadow,
+            stroke: '#000',
+            strokeThickness: 2
+        }).setScrollFactor(0);
         
         // Listen for postMessage controls (for mann.cool integration)
         window.addEventListener('message', (event) => {
@@ -621,7 +788,7 @@ class GameScene extends Phaser.Scene {
         }
         return false;
     }
-    
+
     // Track which hill the player is on
     updateHillCounter() {
         const ballX = this.ball.position.x;
@@ -637,8 +804,518 @@ class GameScene extends Phaser.Scene {
             }
         }
     }
+    
+    updateTimeSystem(delta) {
+        // Convert delta (ms) to in-game minutes
+        // 5 real minutes (300,000 ms) = 24 in-game hours (1440 minutes)
+        // So 1 real ms = 1440 / 300000 = 0.0048 in-game minutes
+        const timeScale = 1440 / this.dayLengthMs;
+        this.gameTime += delta * timeScale;
+        
+        // Handle day rollover
+        if (this.gameTime >= 1440) {  // 24 hours * 60 minutes
+            this.gameTime -= 1440;
+            this.dayCount++;
+            
+            if (DEBUG.logWeather) console.log(`🌅 New day! Day ${this.dayCount}`);
+            
+            // Check for season change
+            if (this.dayCount > this.daysPerSeason) {
+                this.dayCount = 1;
+                this.currentSeasonIndex = (this.currentSeasonIndex + 1) % 4;
+                if (DEBUG.logWeather) console.log(`🍂 Season changed to ${this.seasons[this.currentSeasonIndex]}!`);
+            }
+        }
+        
+        // Update clock display
+        this.clockText.setText(this.formatTime(this.gameTime));
+        
+        // Update season display
+        const season = this.seasons[this.currentSeasonIndex];
+        this.seasonText.setText(`${season} - Day ${this.dayCount}`);
+        
+        // Set season color
+        const seasonColors = {
+            'SPRING': '#90EE90',  // Light green
+            'SUMMER': '#FFD700',  // Gold
+            'FALL': '#FF8C00',    // Dark orange
+            'WINTER': '#87CEEB'   // Sky blue
+        };
+        this.seasonText.setColor(seasonColors[season]);
+        
+        // Update sky color based on time of day
+        this.updateSkyColor();
+    }
+    
+    formatTime(minutes) {
+        const hours24 = Math.floor(minutes / 60) % 24;
+        const mins = Math.floor(minutes % 60);
+        const hours12 = hours24 % 12 || 12;
+        const ampm = hours24 < 12 ? 'AM' : 'PM';
+        return `${hours12}:${mins.toString().padStart(2, '0')} ${ampm}`;
+    }
+    
+    updateSkyColor() {
+        const hour = this.gameTime / 60;  // Current hour (0-24)
+        
+        // Define sky colors for different times
+        // Dawn: 5-7, Day: 7-18, Dusk: 18-20, Night: 20-5
+        let skyColor;
+        
+        if (hour >= 5 && hour < 7) {
+            // Dawn - pink/orange transition
+            const t = (hour - 5) / 2;
+            skyColor = this.lerpColor(0x1a1a2e, 0xFFB6C1, t);  // Night to pink
+        } else if (hour >= 7 && hour < 8) {
+            // Early morning - pink to blue
+            const t = hour - 7;
+            skyColor = this.lerpColor(0xFFB6C1, 0x87CEEB, t);  // Pink to sky blue
+        } else if (hour >= 8 && hour < 17) {
+            // Day - bright blue
+            skyColor = 0x87CEEB;
+        } else if (hour >= 17 && hour < 18) {
+            // Late afternoon - blue to orange
+            const t = hour - 17;
+            skyColor = this.lerpColor(0x87CEEB, 0xFF8C00, t);
+        } else if (hour >= 18 && hour < 20) {
+            // Dusk - orange to dark
+            const t = (hour - 18) / 2;
+            skyColor = this.lerpColor(0xFF8C00, 0x1a1a2e, t);
+        } else {
+            // Night
+            skyColor = 0x1a1a2e;
+        }
+        
+        this.cameras.main.setBackgroundColor(skyColor);
+    }
+    
+    lerpColor(color1, color2, t) {
+        const r1 = (color1 >> 16) & 0xFF;
+        const g1 = (color1 >> 8) & 0xFF;
+        const b1 = color1 & 0xFF;
+        
+        const r2 = (color2 >> 16) & 0xFF;
+        const g2 = (color2 >> 8) & 0xFF;
+        const b2 = color2 & 0xFF;
+        
+        const r = Math.round(r1 + (r2 - r1) * t);
+        const g = Math.round(g1 + (g2 - g1) * t);
+        const b = Math.round(b1 + (b2 - b1) * t);
+        
+        return (r << 16) | (g << 8) | b;
+    }
+    
+    createWeatherParticles() {
+        // Create rain drop textures - small, medium, large
+        const rainSmall = this.make.graphics();
+        rainSmall.fillStyle(0x88CCFF, 0.5);
+        rainSmall.fillRect(0, 0, 1, 6);
+        rainSmall.generateTexture('raindrop_small', 1, 6);
+        rainSmall.destroy();
+        
+        const rainMed = this.make.graphics();
+        rainMed.fillStyle(0x88CCFF, 0.6);
+        rainMed.fillRect(0, 0, 2, 12);
+        rainMed.generateTexture('raindrop_med', 2, 12);
+        rainMed.destroy();
+        
+        const rainLarge = this.make.graphics();
+        rainLarge.fillStyle(0x88CCFF, 0.7);
+        rainLarge.fillRect(0, 0, 3, 18);
+        rainLarge.generateTexture('raindrop_large', 3, 18);
+        rainLarge.destroy();
+        
+        // Create snowflake textures - small, medium, large
+        const snowSmall = this.make.graphics();
+        snowSmall.fillStyle(0xFFFFFF, 0.7);
+        snowSmall.fillCircle(2, 2, 2);
+        snowSmall.generateTexture('snowflake_small', 4, 4);
+        snowSmall.destroy();
+        
+        const snowMed = this.make.graphics();
+        snowMed.fillStyle(0xFFFFFF, 0.85);
+        snowMed.fillCircle(4, 4, 4);
+        snowMed.generateTexture('snowflake_med', 8, 8);
+        snowMed.destroy();
+        
+        const snowLarge = this.make.graphics();
+        snowLarge.fillStyle(0xFFFFFF, 0.95);
+        snowLarge.fillCircle(6, 6, 6);
+        snowLarge.generateTexture('snowflake_large', 12, 12);
+        snowLarge.destroy();
+        
+        // Rain emitters - light, medium, heavy (all start inactive)
+        this.rainEmitterLight = this.add.particles(0, -50, 'raindrop_small', {
+            x: { min: 0, max: this.gameWidth + 200 },
+            y: -50,
+            lifespan: 1200,
+            speedY: { min: 500, max: 700 },
+            speedX: { min: -30, max: 30 },
+            scale: { min: 0.8, max: 1.2 },
+            quantity: 2,
+            frequency: 40,
+            emitting: false
+        });
+        this.rainEmitterLight.setScrollFactor(0);
+        
+        this.rainEmitterMed = this.add.particles(0, -50, 'raindrop_med', {
+            x: { min: 0, max: this.gameWidth + 200 },
+            y: -50,
+            lifespan: 1400,
+            speedY: { min: 450, max: 600 },
+            speedX: { min: -40, max: 40 },
+            scale: { min: 0.8, max: 1.2 },
+            quantity: 3,
+            frequency: 35,
+            emitting: false
+        });
+        this.rainEmitterMed.setScrollFactor(0);
+        
+        this.rainEmitterHeavy = this.add.particles(0, -50, 'raindrop_large', {
+            x: { min: 0, max: this.gameWidth + 200 },
+            y: -50,
+            lifespan: 1600,
+            speedY: { min: 400, max: 550 },
+            speedX: { min: -50, max: 50 },
+            scale: { min: 0.8, max: 1.3 },
+            quantity: 4,
+            frequency: 25,
+            emitting: false
+        });
+        this.rainEmitterHeavy.setScrollFactor(0);
+        
+        // Snow emitters - light, medium, heavy (all start inactive)
+        this.snowEmitterLight = this.add.particles(0, -20, 'snowflake_small', {
+            x: { min: 0, max: this.gameWidth + 100 },
+            y: -20,
+            lifespan: 5000,
+            speedY: { min: 30, max: 60 },
+            speedX: { min: -20, max: 20 },
+            scale: { min: 0.6, max: 1 },
+            quantity: 1,
+            frequency: 80,
+            rotate: { min: 0, max: 360 },
+            emitting: false
+        });
+        this.snowEmitterLight.setScrollFactor(0);
+        
+        this.snowEmitterMed = this.add.particles(0, -20, 'snowflake_med', {
+            x: { min: 0, max: this.gameWidth + 100 },
+            y: -20,
+            lifespan: 4500,
+            speedY: { min: 50, max: 90 },
+            speedX: { min: -25, max: 25 },
+            scale: { min: 0.6, max: 1 },
+            quantity: 2,
+            frequency: 60,
+            rotate: { min: 0, max: 360 },
+            emitting: false
+        });
+        this.snowEmitterMed.setScrollFactor(0);
+        
+        this.snowEmitterHeavy = this.add.particles(0, -20, 'snowflake_large', {
+            x: { min: 0, max: this.gameWidth + 100 },
+            y: -20,
+            lifespan: 4000,
+            speedY: { min: 70, max: 120 },
+            speedX: { min: -30, max: 30 },
+            scale: { min: 0.6, max: 1.1 },
+            quantity: 2,
+            frequency: 50,
+            rotate: { min: 0, max: 360 },
+            emitting: false
+        });
+        this.snowEmitterHeavy.setScrollFactor(0);
+        
+        if (DEBUG.logWeather) console.log('🌦️ Weather particles created');
+    }
+    
+    updateWeather(delta) {
+        this.weatherTimer += delta;
+        
+        // Check if current weather should end
+        if (this.weatherDuration > 0 && this.weatherTimer >= this.weatherDuration) {
+            this.setWeather('clear');
+            this.weatherTimer = 0;
+            this.weatherDuration = 0;
+        }
+        
+        // Random chance to start new weather (check every ~10 seconds of game time)
+        if (this.currentWeather === 'clear' && this.weatherTimer > 10000) {
+            this.weatherTimer = 0;
+            
+            // 30% chance of weather event
+            if (Math.random() < 0.3) {
+                this.startRandomWeather();
+            }
+        }
+        
+        // Update wind effect on particles
+        if (this.windStrength !== 0) {
+            const windSpeed = this.windStrength * 150;
+            // Apply wind to rain
+            if (this.rainEmitterLight.emitting) {
+                this.rainEmitterLight.speedX = { min: windSpeed - 30, max: windSpeed + 30 };
+            }
+            if (this.rainEmitterMed.emitting) {
+                this.rainEmitterMed.speedX = { min: windSpeed - 40, max: windSpeed + 40 };
+            }
+            if (this.rainEmitterHeavy.emitting) {
+                this.rainEmitterHeavy.speedX = { min: windSpeed - 50, max: windSpeed + 50 };
+            }
+            // Apply wind to snow (more affected by wind)
+            if (this.snowEmitterLight.emitting) {
+                this.snowEmitterLight.speedX = { min: windSpeed - 40, max: windSpeed + 40 };
+            }
+            if (this.snowEmitterMed.emitting) {
+                this.snowEmitterMed.speedX = { min: windSpeed - 50, max: windSpeed + 50 };
+            }
+            if (this.snowEmitterHeavy.emitting) {
+                this.snowEmitterHeavy.speedX = { min: windSpeed - 60, max: windSpeed + 60 };
+            }
+        }
+    }
+    
+    startRandomWeather() {
+        const season = this.seasons[this.currentSeasonIndex];
+        let possibleWeather = [];
+        
+        // Weather options by season (with intensity: light, medium, heavy)
+        switch (season) {
+            case 'SPRING':
+                possibleWeather = ['rain_light', 'rain_medium', 'rain_heavy', 'wind'];
+                break;
+            case 'SUMMER':
+                possibleWeather = ['clear', 'wind', 'rain_light'];
+                break;
+            case 'FALL':
+                possibleWeather = ['rain_medium', 'rain_heavy', 'wind', 'wind'];
+                break;
+            case 'WINTER':
+                possibleWeather = ['snow_light', 'snow_medium', 'snow_heavy', 'wind'];
+                break;
+        }
+        
+        const weather = possibleWeather[Math.floor(Math.random() * possibleWeather.length)];
+        const duration = 15000 + Math.random() * 30000;  // 15-45 seconds
+        
+        if (DEBUG.logWeather) console.log(`🌦️ Starting ${weather} weather for ${Math.round(duration/1000)}s (Season: ${season})`);
+        
+        this.setWeather(weather);
+        this.weatherDuration = duration;
+        this.weatherTimer = 0;
+    }
+    
+    setWeather(weather) {
+        this.currentWeather = weather;
+        
+        // Stop all emitters first
+        this.rainEmitterLight.emitting = false;
+        this.rainEmitterMed.emitting = false;
+        this.rainEmitterHeavy.emitting = false;
+        this.snowEmitterLight.emitting = false;
+        this.snowEmitterMed.emitting = false;
+        this.snowEmitterHeavy.emitting = false;
+        this.windStrength = 0;
+        
+        // Update weather display
+        let weatherIcon = '';
+        
+        switch (weather) {
+            case 'rain_light':
+                this.rainEmitterLight.emitting = true;
+                weatherIcon = '🌧️ Light Rain';
+                if (DEBUG.logWeather) console.log('🌧️ Light rain started');
+                break;
+            case 'rain_medium':
+                this.rainEmitterLight.emitting = true;
+                this.rainEmitterMed.emitting = true;
+                weatherIcon = '🌧️ Rain';
+                if (DEBUG.logWeather) console.log('🌧️ Medium rain started');
+                break;
+            case 'rain_heavy':
+                this.rainEmitterLight.emitting = true;
+                this.rainEmitterMed.emitting = true;
+                this.rainEmitterHeavy.emitting = true;
+                weatherIcon = '🌧️ Heavy Rain';
+                if (DEBUG.logWeather) console.log('🌧️ Heavy rain started');
+                break;
+            case 'snow_light':
+                this.snowEmitterLight.emitting = true;
+                weatherIcon = '❄️ Light Snow';
+                if (DEBUG.logWeather) console.log('❄️ Light snow started');
+                break;
+            case 'snow_medium':
+                this.snowEmitterLight.emitting = true;
+                this.snowEmitterMed.emitting = true;
+                weatherIcon = '❄️ Snow';
+                if (DEBUG.logWeather) console.log('❄️ Medium snow started');
+                break;
+            case 'snow_heavy':
+                this.snowEmitterLight.emitting = true;
+                this.snowEmitterMed.emitting = true;
+                this.snowEmitterHeavy.emitting = true;
+                weatherIcon = '❄️ Blizzard';
+                if (DEBUG.logWeather) console.log('❄️ Heavy snow started');
+                break;
+            case 'wind':
+                this.windStrength = (Math.random() > 0.5 ? 1 : -1) * (0.5 + Math.random() * 0.5);
+                weatherIcon = this.windStrength > 0 ? '💨 Wind →' : '💨 ← Wind';
+                if (DEBUG.logWeather) console.log(`💨 Wind started (strength: ${this.windStrength.toFixed(2)})`);
+                break;
+            case 'clear':
+                weatherIcon = '☀️ Clear';
+                if (DEBUG.logWeather) console.log('☀️ Weather cleared');
+                break;
+        }
+        
+        this.weatherText.setText(weatherIcon);
+    }
+    
+    // ============================================
+    // RANDOM ENEMY APPEARANCES
+    // ============================================
+    
+    updateEnemies(delta) {
+        this.enemySpawnTimer += delta;
+        
+        // Check for new spawn
+        if (this.enemySpawnTimer >= this.enemySpawnInterval) {
+            this.enemySpawnTimer = 0;
+            
+            const roll = Math.random();
+            if (DEBUG.logEnemies) console.log(`🎲 Enemy spawn check: rolled ${roll.toFixed(2)} (need < ${this.enemySpawnChance})`);
+            
+            if (roll < this.enemySpawnChance) {
+                this.spawnRandomEnemy();
+            } else {
+                if (DEBUG.logEnemies) console.log(`❌ No enemy this time`);
+            }
+        }
+        
+        // Update active enemies
+        for (let i = this.activeEnemies.length - 1; i >= 0; i--) {
+            const enemy = this.activeEnemies[i];
+            this.updateEnemy(enemy);
+            
+            // Remove if off screen
+            if (enemy.sprite.x < this.cameras.main.scrollX - 100 || 
+                enemy.sprite.x > this.cameras.main.scrollX + this.gameWidth + 100) {
+                enemy.sprite.destroy();
+                this.activeEnemies.splice(i, 1);
+            }
+        }
+    }
+    
+    spawnRandomEnemy() {
+        const enemyTypes = ['pidgit', 'shyguy'];
+        const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        
+        if (type === 'pidgit') {
+            this.spawnPidgit();
+        } else if (type === 'shyguy') {
+            this.spawnShyGuy();
+        }
+    }
+    
+    spawnPidgit() {
+        // Pidgit flies across the sky
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        const startY = 80 + Math.random() * 150;  // Upper portion of screen
+        
+        const sprite = this.add.sprite(startX, startY, 'pidgit-1');
+        sprite.setScale(3);  // Scale up the pixel art
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(fromLeft);  // Face direction of movement (flipped)
+        
+        // Make it crisp
+        this.textures.get('pidgit-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'pidgit',
+            sprite: sprite,
+            speed: fromLeft ? 2 + Math.random() : -(2 + Math.random()),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 8,
+            animSpeed: 120  // ms per frame
+        };
+        
+        this.activeEnemies.push(enemy);
+        
+        if (DEBUG.logEnemies) console.log('🐦 Pidgit appeared!');
+    }
+    
+    spawnShyGuy() {
+        // Shy Guy walks across the ground in the foreground
+        const fromLeft = Math.random() > 0.5;
+        const startX = fromLeft ? 
+            this.cameras.main.scrollX - 50 : 
+            this.cameras.main.scrollX + this.gameWidth + 50;
+        
+        // Walk on the ground level
+        const groundY = this.baseGroundY - 30;
+        
+        const sprite = this.add.sprite(startX, groundY, 'shyguy-1');
+        sprite.setScale(3);  // Scale up to match Pidgit
+        sprite.setScrollFactor(1);
+        sprite.setFlipX(!fromLeft);  // Face direction of movement
+        sprite.setDepth(5);  // In front of ground, behind player
+        
+        this.textures.get('shyguy-1').setFilter(Phaser.Textures.FilterMode.NEAREST);
+        
+        const enemy = {
+            type: 'shyguy',
+            sprite: sprite,
+            speed: fromLeft ? 1.5 + Math.random() * 0.5 : -(1.5 + Math.random() * 0.5),
+            frame: 1,
+            frameTimer: 0,
+            maxFrames: 6,  // Walking frames (1-6)
+            animSpeed: 150
+        };
+        
+        this.activeEnemies.push(enemy);
+        
+        if (DEBUG.logEnemies) console.log(`😳 Shy Guy appeared at x:${startX.toFixed(0)}, y:${groundY}!`);
+    }
+    
+    updateEnemy(enemy) {
+        // Move
+        enemy.sprite.x += enemy.speed;
+        
+        // Animate
+        enemy.frameTimer += this.game.loop.delta;
+        if (enemy.frameTimer >= enemy.animSpeed) {
+            enemy.frameTimer = 0;
+            enemy.frame = (enemy.frame % enemy.maxFrames) + 1;
+            enemy.sprite.setTexture(`${enemy.type}-${enemy.frame}`);
+        }
+        
+        // Pidgit has a gentle bobbing motion
+        if (enemy.type === 'pidgit') {
+            enemy.sprite.y += Math.sin(enemy.sprite.x * 0.02) * 0.3;
+        }
+        
+        // Shy Guy follows the terrain
+        if (enemy.type === 'shyguy') {
+            const groundY = this.getGroundY(enemy.sprite.x);
+            enemy.sprite.y = groundY - 25;  // Offset to stand on ground
+        }
+    }
 
-    update() {
+    update(time, delta) {
+        // Update time system
+        this.updateTimeSystem(delta);
+        
+        // Update weather
+        this.updateWeather(delta);
+        
+        // Update random enemies
+        this.updateEnemies(delta);
+        
         // Generate terrain ahead and cleanup behind
         this.generateAhead();
         this.cleanupSegments();
