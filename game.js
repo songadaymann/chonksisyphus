@@ -677,8 +677,8 @@ class GameScene extends Phaser.Scene {
 
         this.moveSpeed = 2;
         this.playerWidth = 40;
-        this.blowThreshold = 0.05
-        ;
+        this.blowThreshold = 0.02;  // Very sensitive for mobile!
+        this.smoothedMicLevel = 0;  // Smoothed mic level for stability
         
         // Track hills climbed
         this.hillsClimbed = 0;
@@ -1707,10 +1707,13 @@ class GameScene extends Phaser.Scene {
         const minX = Math.max(0, this.playerX - 400);
         this.matter.body.setPosition(this.leftWall, { x: minX - 10, y: this.gameHeight / 2 });
         
-        this.micLevel = this.getMicLevel();
+        // Get raw mic level and apply smoothing for stability
+        const rawMicLevel = this.getMicLevel();
+        this.smoothedMicLevel = this.smoothedMicLevel * 0.7 + rawMicLevel * 0.3;  // Smooth but responsive
+        this.micLevel = this.smoothedMicLevel;
         
         // Update blow meter visual
-        const meterWidth = Math.min(this.micLevel * 200, 100);  // Max 100px width
+        const meterWidth = Math.min(this.micLevel * 300, 100);  // More sensitive meter display
         this.blowMeterFill.width = meterWidth;
         // Change color based on level: green -> yellow -> red
         if (this.micLevel > this.blowThreshold) {
