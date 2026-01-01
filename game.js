@@ -677,7 +677,7 @@ class GameScene extends Phaser.Scene {
 
         this.moveSpeed = 2;
         this.playerWidth = 40;
-        this.blowThreshold = 0.02;  // Very sensitive for mobile!
+        this.blowThreshold = 0.009;  // Ultra sensitive for mobile!
         this.smoothedMicLevel = 0;  // Smoothed mic level for stability
         
         // Track hills climbed
@@ -701,20 +701,6 @@ class GameScene extends Phaser.Scene {
             color: '#fff',
             fontStyle: 'bold',
         }).setOrigin(1, 0).setScrollFactor(0).setDepth(100).setShadow(2, 2, '#000', 4);
-        
-        // Blow meter - simple bar indicator
-        this.blowMeterBg = this.add.rectangle(this.gameWidth - 20, 50, 100, 12, 0x333333)
-            .setOrigin(1, 0).setScrollFactor(0).setDepth(100);
-        this.blowMeterFill = this.add.rectangle(this.gameWidth - 20, 50, 0, 12, 0x00ff00)
-            .setOrigin(1, 0).setScrollFactor(0).setDepth(101);
-        this.blowLabel = this.add.text(this.gameWidth - 125, 48, '🌬️', {
-            fontFamily: 'Courier New',
-            fontSize: '14px',
-            color: '#fff',
-            shadow: hudShadow,
-            stroke: '#000',
-            strokeThickness: 3
-        }).setOrigin(1, 0).setScrollFactor(0);  // Right-aligned
         
         // Clock display (left side)
         this.clockText = this.add.text(20, 20, '6:00 AM', {
@@ -1712,15 +1698,6 @@ class GameScene extends Phaser.Scene {
         this.smoothedMicLevel = this.smoothedMicLevel * 0.7 + rawMicLevel * 0.3;  // Smooth but responsive
         this.micLevel = this.smoothedMicLevel;
         
-        // Update blow meter visual
-        const meterWidth = Math.min(this.micLevel * 300, 100);  // More sensitive meter display
-        this.blowMeterFill.width = meterWidth;
-        // Change color based on level: green -> yellow -> red
-        if (this.micLevel > this.blowThreshold) {
-            this.blowMeterFill.fillColor = 0xff6600;  // Orange when blowing
-        } else {
-            this.blowMeterFill.fillColor = 0x00ff00;  // Green otherwise
-        }
         
         // Keyboard disabled - blow only!
         const leftPressed = false;
