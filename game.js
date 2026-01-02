@@ -1470,7 +1470,7 @@ class GameScene extends Phaser.Scene {
         const startX = fromLeft ? 
             this.cameras.main.scrollX - 50 : 
             this.cameras.main.scrollX + this.gameWidth + 50;
-        const groundY = this.baseGroundY - 30;
+        const groundY = this.baseGroundY - 45;
         
         const sprite = this.add.sprite(startX, groundY, 'autobomb-1');
         sprite.setScale(3);
