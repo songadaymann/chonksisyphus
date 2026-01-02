@@ -1,69 +1,133 @@
 # Chonk Sisyphus - Progress Notes
 
 ## Overview
-A mobile-first Phaser 3 game where you blow into your microphone to push a boulder up a hill. Sisyphus meets cute frog character!
+A mobile-first Phaser 3 game where you blow into your microphone to push a boulder up endless hills. Sisyphus meets cute frog character!
 
 ## Current State
 
 ### Core Gameplay
 - **Blow to push**: Microphone input moves the frog right and pushes the boulder
-- **Physics-based boulder**: Uses Matter.js for realistic rolling/gravity
+- **Physics-based boulder**: Uses Matter.js for realistic rolling/gravity with lumpy shape
 - **Incline mechanics**: Boulder is harder to push uphill, easier downhill
-- **Keyboard backup**: Arrow keys / WASD still work
+- **Endless hills**: Procedurally generated terrain with varying hill lengths and inclines
+- **Keyboard DISABLED**: Blow-only gameplay (no WASD/arrows)
 
-### Sprites (in `frog-chonk/` folder)
-- `frog-chonk-walk1.png` through `walk4.png` - 4-frame walk cycle
-- `frog-chonk-push1.png` through `push4.png` - 4-frame push cycle
-- Walking animation when moving freely
-- Push animation when pressing against boulder
+### Title Screen
+- Logo displayed with "Tap to Start" prompt
+- Requests microphone permission on start
+- Blue sky background
 
-### Level Layout
-- Flat bottom section (250px)
-- Gentle incline (400px wide, 200px height)
-- Flat top section (250px)
-- Total world width: 900px (scrolls horizontally)
+### HUD Elements
+- **Hills counter**: Top-right, shows number of hills climbed
+- **Clock**: Top-left, shows in-game time (5 real minutes = 1 day)
+- **Season indicator**: Shows current season and day number
+- **Weather indicator**: Shows current weather with emoji
 
-### Physics Tuning (the sweet spot!)
-- Ball density: `0.0006`
-- Ball friction: `0.4`
-- Ball frictionStatic: `0.5`
-- Push force (flat): `0.002`
-- Push force (uphill): `0.0015`
-- Push force (downhill): `0.0025`
-- Blow harder = push harder (force scales with mic volume)
+### Time & Season System
+- 5 real minutes = 1 in-game day
+- 7 days = 1 season
+- Seasons cycle: SPRING → SUMMER → FALL → WINTER
+- Sky color changes based on time (dawn, day, dusk, night)
 
-### Mobile Optimizations
-- Portrait aspect ratio: 440×780 (roughly 9:16)
-- `Phaser.Scale.FIT` with auto-center
-- Camera follows player with smooth lerp
-- UI elements fixed to screen (don't scroll)
-- Touch-friendly, disabled pinch-zoom
-- iOS "Add to Home Screen" ready
+### Weather System
+- **Clear**: No effects
+- **Rain**: Light, medium, heavy variants with particle effects
+- **Snow**: Light, medium, heavy (blizzard) variants
+- **Wind**: Blows particles left or right
+- Weather sound effects for each type
 
-### Collision Rules
-- Player can ONLY be to the LEFT of the ball
-- Ball can push player backward when rolling down
-- Player can't pass through ball in either direction
+### Enemies (Mario 2 style, unlock by day)
+| Day | Enemy | Behavior |
+|-----|-------|----------|
+| 0 | Pidgit | Flies across sky with bobbing motion |
+| 0 | Shy Guy | Walks on ground, follows terrain |
+| 1 | Autobomb | Drives fast on ground |
+| 2 | Bob-omb | Walks on ground (5-frame animation) |
+| 3 | Flurry | Runs fast on ground |
+| 4 | Ninji | Jumps in place |
+| 5 | Phanto | Flies erratically, changes direction randomly |
+| 6 | Porcupo | Walks slowly on ground |
+| 7 | Snift | Walks on ground |
+| 8 | Subcon | Flies across screen with wave motion |
+
+### Friends
+- **Muscle Friend**: Pink muscular character that walks up the mountain
+  - Spawns at game start
+  - Randomly respawns (30% chance every 25 seconds)
+  - 7-frame walk animation
+  - Follows terrain
+
+### Parallax Backgrounds
+- 3 layers: Clouds, Mountains, Forest
+- Different scroll speeds for depth effect
+- Pixel art style with NEAREST filter for crispness
+
+### Physics (Device-Specific)
+| Device | Friction | FrictionStatic |
+|--------|----------|----------------|
+| Mobile | 0.5 | 0.6 |
+| Desktop | 0.3 | 0.4 |
+
+Desktop gets lower friction (Mac mics seem to need easier pushing)
 
 ### Microphone Setup
 - Web Audio API with AnalyserNode
-- Blow threshold: `0.15` (normalized 0-1)
-- Visual mic meter on screen
-- Tap/click to enable (browser security requirement)
+- Blow threshold: `0.009` (ultra sensitive)
+- Smoothing applied for stability
+- No visual meter (removed for clean UI)
+
+### Sound Effects
+- **Background music**: Loops continuously
+- **Rolling stone**: Plays when boulder is moving
+- **Weather sounds**: Light/heavy rain, light/heavy wind
+
+### Stuck Detection
+- If boulder doesn't move for 10 seconds, gets a gentle nudge
+- Prevents frustrating gameplay halts
+
+### Boulder
+- 8-bit pixel art texture (procedurally generated)
+- Lumpy polygon physics shape for more interesting rolling
+- Circular mask applied to sprite
 
 ## Files
 - `index.html` - Responsive mobile-ready HTML
-- `game.js` - All game logic (single file for simplicity)
-- `frog-chonk/` - Sprite assets
+- `game.js` - All game logic (~2000 lines)
+- `blow-test.html` - Microphone sensitivity test page
+- `assets/chonks/frog-chonk/` - Player sprite assets
+- `assets/enemies/` - Enemy sprites organized by character
+- `assets/friends/` - Friend sprites (muscle)
+- `assets/parallax/` - Background layers
+- `assets/sounds/` - Sound effects
+- `assets/terrain/` - Ground tiles
 
-## Next Ideas?
-- [ ] Win condition when boulder reaches the top?
-- [ ] The boulder rolls back if you stop blowing?
-- [ ] Multiple hills/levels?
-- [ ] Leaderboard for fastest time?
-- [ ] Sound effects?
-- [ ] Particle effects when pushing?
+## Debug Options
+```javascript
+const DEBUG = {
+    showPhysics: false,
+    logWeather: false,
+    logEnemies: true
+};
+```
+
+## Completed Features ✅
+- [x] Endless procedural terrain
+- [x] Hill variety (length and incline)
+- [x] Time/day/season system
+- [x] Weather with particle effects
+- [x] Sound effects (weather, rolling stone, music)
+- [x] Mario 2 enemies with day-based unlocking
+- [x] Muscle friend character
+- [x] Device-specific physics tuning
+- [x] Title screen with mic permission
+- [x] Parallax backgrounds
+- [x] 8-bit procedural boulder
+- [x] Stuck detection with auto-nudge
+
+## Known Issues / TODO
+- [ ] Rolling stone sound not playing (debugging)
+- [ ] Could add more friend characters
+- [ ] Possible win condition or milestones?
 
 ---
-*Last updated: Dec 17, 2025*
-
+*Last updated: Jan 2, 2026*

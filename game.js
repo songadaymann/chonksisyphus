@@ -271,6 +271,13 @@ class GameScene extends Phaser.Scene {
         
         // Background music
         this.load.audio('bgm', 'assets/chonks-sysiphus.mp3');
+        
+        // Sound effects
+        this.load.audio('sfx-light-rain', 'assets/sounds/light-rain.mp3');
+        this.load.audio('sfx-heavy-rain', 'assets/sounds/heavy-rain.mp3');
+        this.load.audio('sfx-light-wind', 'assets/sounds/light-wind.mp3');
+        this.load.audio('sfx-heavy-wind', 'assets/sounds/heavy-wind.mp3');
+        this.load.audio('sfx-rolling-stone', 'assets/sounds/rolling-stone.mp3');
     }
 
     setupMicrophone() {
@@ -473,6 +480,11 @@ class GameScene extends Phaser.Scene {
     
     // Get ground Y at any X position (works with multiple segments)
     getGroundY(x) {
+        // If player is before the first segment (left of x=0), use base ground level
+        if (x < 0 || (this.segments.length > 0 && x < this.segments[0].startX)) {
+            return this.baseGroundY;
+        }
+        
         for (const segment of this.segments) {
             if (x >= segment.startX && x < segment.endX) {
                 const localX = x - segment.startX;
@@ -493,7 +505,7 @@ class GameScene extends Phaser.Scene {
             }
         }
         
-        // Fallback - use last segment's end Y
+        // Fallback - use last segment's end Y (for positions beyond all segments)
         if (this.segments.length > 0) {
             return this.segments[this.segments.length - 1].endY;
         }
@@ -799,6 +811,21 @@ class GameScene extends Phaser.Scene {
         this.bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 });
         this.bgMusic.play();
         
+        // Weather sound effects (looping)
+        this.sfxLightRain = this.sound.add('sfx-light-rain', { loop: true, volume: 0.4 });
+        this.sfxHeavyRain = this.sound.add('sfx-heavy-rain', { loop: true, volume: 0.5 });
+        this.sfxLightWind = this.sound.add('sfx-light-wind', { loop: true, volume: 0.3 });
+        this.sfxHeavyWind = this.sound.add('sfx-heavy-wind', { loop: true, volume: 0.4 });
+        
+        // Rolling stone sound (looping, plays when ball moves)
+        this.sfxRollingStone = this.sound.add('sfx-rolling-stone', { loop: true, volume: 0.5 });
+        this.isRolling = false;  // Track if ball is currently rolling
+        console.log('🔊 Sound effects loaded:', {
+            rollingStone: this.sfxRollingStone,
+            lightRain: this.sfxLightRain,
+            heavyRain: this.sfxHeavyRain
+        });
+        
         // Weather particle system
         this.createWeatherParticles();
         
@@ -860,22 +887,41 @@ class GameScene extends Phaser.Scene {
         const currentBallX = this.ball.position.x;
         const moved = Math.abs(currentBallX - this.lastBallX);
         
-        if (moved > this.stuckMoveThreshold) {
-            // Ball is moving, reset timer
+        // Check ball velocity directly from physics - more reliable than position delta
+        const ballSpeed = Math.abs(this.ball.velocity.x);
+        const isCurrentlyMoving = ballSpeed > 0.3;  // Threshold for "moving"
+        
+        if (isCurrentlyMoving) {
+            // Ball is moving, reset stuck timer
             this.stuckTimer = 0;
-            this.lastBallX = currentBallX;
+            
+            // Start rolling sound if not already playing
+            if (!this.isRolling) {
+                console.log('🪨 Ball started rolling, playing sound...');
+                this.sfxRollingStone.play();
+                this.isRolling = true;
+            }
         } else {
-            // Ball hasn't moved much, increment timer
+            // Ball is mostly stopped, increment stuck timer
             this.stuckTimer += delta;
+            
+            // Stop rolling sound if ball has been stopped for a bit (100ms debounce)
+            if (this.isRolling && this.stuckTimer > 100) {
+                console.log('🪨 Ball stopped, stopping sound...');
+                this.sfxRollingStone.stop();
+                this.isRolling = false;
+            }
             
             if (this.stuckTimer >= this.stuckThreshold) {
                 // Ball is stuck! Give it a nudge
                 console.log('🪨 Ball stuck! Giving it a nudge...');
                 this.matter.body.applyForce(this.ball, this.ball.position, { x: 0.015, y: -0.01 });
                 this.stuckTimer = 0;
-                this.lastBallX = currentBallX;
             }
         }
+        
+        // Always update lastBallX for stuck detection
+        this.lastBallX = currentBallX;
     }
     
     // Track which hill the player is on
@@ -1198,6 +1244,12 @@ class GameScene extends Phaser.Scene {
     setWeather(weather) {
         this.currentWeather = weather;
         
+        // Stop all weather sounds first
+        this.sfxLightRain.stop();
+        this.sfxHeavyRain.stop();
+        this.sfxLightWind.stop();
+        this.sfxHeavyWind.stop();
+        
         // Stop all emitters first
         this.rainEmitterLight.emitting = false;
         this.rainEmitterMed.emitting = false;
@@ -1213,12 +1265,14 @@ class GameScene extends Phaser.Scene {
         switch (weather) {
             case 'rain_light':
                 this.rainEmitterLight.emitting = true;
+                this.sfxLightRain.play();
                 weatherIcon = '🌧️ Light Rain';
                 if (DEBUG.logWeather) console.log('🌧️ Light rain started');
                 break;
             case 'rain_medium':
                 this.rainEmitterLight.emitting = true;
                 this.rainEmitterMed.emitting = true;
+                this.sfxLightRain.play();
                 weatherIcon = '🌧️ Rain';
                 if (DEBUG.logWeather) console.log('🌧️ Medium rain started');
                 break;
@@ -1226,17 +1280,20 @@ class GameScene extends Phaser.Scene {
                 this.rainEmitterLight.emitting = true;
                 this.rainEmitterMed.emitting = true;
                 this.rainEmitterHeavy.emitting = true;
+                this.sfxHeavyRain.play();
                 weatherIcon = '🌧️ Heavy Rain';
                 if (DEBUG.logWeather) console.log('🌧️ Heavy rain started');
                 break;
             case 'snow_light':
                 this.snowEmitterLight.emitting = true;
+                this.sfxLightWind.play();  // Light wind for snow
                 weatherIcon = '❄️ Light Snow';
                 if (DEBUG.logWeather) console.log('❄️ Light snow started');
                 break;
             case 'snow_medium':
                 this.snowEmitterLight.emitting = true;
                 this.snowEmitterMed.emitting = true;
+                this.sfxLightWind.play();
                 weatherIcon = '❄️ Snow';
                 if (DEBUG.logWeather) console.log('❄️ Medium snow started');
                 break;
@@ -1244,11 +1301,18 @@ class GameScene extends Phaser.Scene {
                 this.snowEmitterLight.emitting = true;
                 this.snowEmitterMed.emitting = true;
                 this.snowEmitterHeavy.emitting = true;
+                this.sfxHeavyWind.play();  // Heavy wind for blizzard
                 weatherIcon = '❄️ Blizzard';
                 if (DEBUG.logWeather) console.log('❄️ Heavy snow started');
                 break;
             case 'wind':
                 this.windStrength = (Math.random() > 0.5 ? 1 : -1) * (0.5 + Math.random() * 0.5);
+                // Play wind sound based on strength
+                if (Math.abs(this.windStrength) > 0.7) {
+                    this.sfxHeavyWind.play();
+                } else {
+                    this.sfxLightWind.play();
+                }
                 weatherIcon = this.windStrength > 0 ? '💨 Wind →' : '💨 ← Wind';
                 if (DEBUG.logWeather) console.log(`💨 Wind started (strength: ${this.windStrength.toFixed(2)})`);
                 break;
