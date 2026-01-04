@@ -1,0 +1,188 @@
+{
+	"textures": [
+		{
+			"image": "frog-chonk.png",
+			"format": "RGBA8888",
+			"size": {
+				"w": 1912,
+				"h": 367
+			},
+			"scale": 1,
+			"frames": [
+				{
+					"filename": "frog-chonk-walk3.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 55,
+						"y": 39,
+						"w": 225,
+						"h": 365
+					},
+					"frame": {
+						"x": 1,
+						"y": 1,
+						"w": 225,
+						"h": 365
+					}
+				},
+				{
+					"filename": "frog-chonk-walk2.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 57,
+						"y": 41,
+						"w": 225,
+						"h": 364
+					},
+					"frame": {
+						"x": 228,
+						"y": 1,
+						"w": 225,
+						"h": 364
+					}
+				},
+				{
+					"filename": "frog-chonk-walk1.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 68,
+						"y": 41,
+						"w": 208,
+						"h": 360
+					},
+					"frame": {
+						"x": 455,
+						"y": 1,
+						"w": 208,
+						"h": 360
+					}
+				},
+				{
+					"filename": "frog-chonk-walk4.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 68,
+						"y": 41,
+						"w": 208,
+						"h": 359
+					},
+					"frame": {
+						"x": 665,
+						"y": 1,
+						"w": 208,
+						"h": 359
+					}
+				},
+				{
+					"filename": "frog-chonk-push3.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 74,
+						"y": 68,
+						"w": 259,
+						"h": 345
+					},
+					"frame": {
+						"x": 875,
+						"y": 1,
+						"w": 259,
+						"h": 345
+					}
+				},
+				{
+					"filename": "frog-chonk-push4.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 86,
+						"y": 68,
+						"w": 247,
+						"h": 344
+					},
+					"frame": {
+						"x": 1136,
+						"y": 1,
+						"w": 247,
+						"h": 344
+					}
+				},
+				{
+					"filename": "frog-chonk-push1.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 68,
+						"y": 68,
+						"w": 265,
+						"h": 341
+					},
+					"frame": {
+						"x": 1385,
+						"y": 1,
+						"w": 265,
+						"h": 341
+					}
+				},
+				{
+					"filename": "frog-chonk-push2.png",
+					"rotated": false,
+					"trimmed": true,
+					"sourceSize": {
+						"w": 350,
+						"h": 441
+					},
+					"spriteSourceSize": {
+						"x": 74,
+						"y": 68,
+						"w": 259,
+						"h": 338
+					},
+					"frame": {
+						"x": 1652,
+						"y": 1,
+						"w": 259,
+						"h": 338
+					}
+				}
+			]
+		}
+	],
+	"meta": {
+		"app": "https://www.codeandweb.com/texturepacker",
+		"version": "3.0",
+		"smartupdate": "$TexturePacker:SmartUpdate:f952ddbc05bc9f279208baa15931da86:ac97cdfe2c803b215c281c5787d78639:4e4674856e24b59b30b2fc4c34362ee6$"
+	}
+}
